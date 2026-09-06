@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dictado Ferisel</title>
+  <style>
+    body{
+      margin:0;
+      padding:24px;
+      font-family:Arial,sans-serif;
+      background:#f5f7fa;
+      color:#1f2937;
+    }
+    .card{
+      max-width:520px;
+      margin:0 auto;
+      background:white;
+      border-radius:16px;
+      padding:22px;
+      box-shadow:0 8px 30px rgba(0,0,0,.12);
+    }
+    h2{margin:0 0 8px}
+    #estado{
+      margin:10px 0 14px;
+      font-size:14px;
+      color:#4b5563;
+    }
+    textarea{
+      width:100%;
+      min-height:150px;
+      box-sizing:border-box;
+      resize:vertical;
+      padding:12px;
+      border:1px solid #d1d5db;
+      border-radius:10px;
+      font-size:16px;
+      line-height:1.45;
+    }
+    .fila{
+      display:flex;
+      gap:10px;
+      margin-top:14px;
+    }
+    button{
+      flex:1;
+      border:0;
+      border-radius:10px;
+      padding:12px 14px;
+      font-size:16px;
+      cursor:pointer;
+    }
+    #btnHablar{background:#111827;color:white}
+    #btnEnviar{background:#16a34a;color:white}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .ayuda{
+      margin-top:12px;
+      font-size:13px;
+      color:#6b7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>🎤 Dictado Ferisel</h2>
+    <div id="estado">Presiona «Iniciar» y habla normalmente.</div>
+
+    <textarea id="resultado" placeholder="Aquí aparecerá lo que dictes..." readonly></textarea>
+
+    <div class="fila">
+      <button id="btnHablar">🎤 Iniciar</button>
+      <button id="btnEnviar" disabled>✓ Insertar en Ferisel</button>
+    </div>
+
+    <div class="ayuda">
+      Puedes hacer pausas y continuar. Cuando termines, pulsa «Insertar en Ferisel».
+    </div>
+  </div>
+
+<script>
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  const estado = document.getElementById('estado');
+  const resultado = document.getElementById('resultado');
+  const btnHablar = document.getElementById('btnHablar');
+  const btnEnviar = document.getElementById('btnEnviar');
+
+  let recognition = null;
+  let escuchando = false;
+  let textoFinal = '';
+
+  if (!SpeechRecognition) {
+    estado.textContent =
+      'Este navegador no permite reconocimiento de voz. Usa Google Chrome.';
+    btnHablar.disabled = true;
+  }
+
+  function actualizarBotones() {
+    btnHablar.textContent = escuchando ? '⏹ Detener' : '🎤 Iniciar';
+    btnEnviar.disabled = !textoFinal.trim();
+  }
+
+  function iniciarReconocimiento() {
+    if (!SpeechRecognition || escuchando) return;
+
+    recognition = new SpeechRecognition();
+    recognition.lang = 'es-PE';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = function() {
+      escuchando = true;
+      estado.textContent = '🔴 Escuchando... habla ahora.';
+      actualizarBotones();
+    };
+
+    recognition.onresult = function(event) {
+      let textoIntermedio = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const parte = event.results[i][0].transcript.trim();
+
+        if (event.results[i].isFinal) {
+          if (parte) {
+            textoFinal += (textoFinal ? ' ' : '') + parte;
+          }
+        } else {
+          textoIntermedio += parte;
+        }
+      }
+
+      resultado.value =
+        (textoFinal + (textoIntermedio ? ' ' + textoIntermedio : '')).trim();
+
+      actualizarBotones();
+    };
+
+    recognition.onerror = function(event) {
+      estado.textContent = '⚠️ Error de dictado: ' + event.error;
+      escuchando = false;
+      actualizarBotones();
+    };
+
+    recognition.onend = function() {
+      escuchando = false;
+      estado.textContent = textoFinal.trim()
+        ? 'Dictado detenido. Puedes insertar el texto.'
+        : 'Presiona «Iniciar» para comenzar.';
+      actualizarBotones();
+    };
+
+    try {
+      recognition.start();
+    } catch (error) {
+      escuchando = false;
+      estado.textContent = 'No se pudo iniciar el micrófono.';
+      actualizarBotones();
+    }
+  }
+
+  btnHablar.addEventListener('click', function() {
+    if (escuchando) {
+      escuchando = false;
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+      estado.textContent = 'Dictado detenido.';
+      actualizarBotones();
+      return;
+    }
+
+    iniciarReconocimiento();
+  });
+
+  btnEnviar.addEventListener('click', function() {
+    const texto = textoFinal.trim();
+
+    if (!texto) {
+      alert('Primero dicta algún texto.');
+      return;
+    }
+
+    if (!window.opener || window.opener.closed) {
+      alert('No se encontró la ventana de Ferisel. Cierra esta ventana y vuelve a abrir el dictado desde el botón 🎤 de Ferisel.');
+      return;
+    }
+
+    escuchando = false;
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+    }
+
+    // El destino se valida en la ventana de Ferisel mediante event.origin.
+    window.opener.postMessage(
+      {
+        type: 'FERISEL_DICTADO',
+        text: texto
+      },
+      '*'
+    );
+
+    window.close();
+  });
+
+  actualizarBotones();
+</script>
+</body>
+</html>
